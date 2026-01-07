@@ -1,0 +1,491 @@
+index.html
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Planejador Anti-Procrastinação - Transforme seu tempo em conquistas">
+    <title>Anti-Procrastinação</title>
+    
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#9333ea">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        const { useState, useEffect } = React;
+
+        function AntiProcrastinationApp() {
+          // Carregar dados salvos
+          const [goals, setGoals] = useState(() => {
+            const saved = localStorage.getItem('antiprocrastinacao_goals');
+            return saved ? JSON.parse(saved) : [];
+          });
+          
+          const [showNewGoal, setShowNewGoal] = useState(false);
+          const [showInstallPrompt, setShowInstallPrompt] = useState(true);
+          const [newGoal, setNewGoal] = useState({
+            title: '',
+            targetHours: 10,
+            targetDays: 30,
+            dailyGoalMinutes: 60,
+            hourlyValue: 0,
+            category: 'projeto'
+          });
+          const [activeGoalId, setActiveGoalId] = useState(null);
+          const [timerSeconds, setTimerSeconds] = useState(0);
+          const [isRunning, setIsRunning] = useState(false);
+
+          // Salvar dados automaticamente
+          useEffect(() => {
+            localStorage.setItem('antiprocrastinacao_goals', JSON.stringify(goals));
+          }, [goals]);
+
+          // Timer
+          useEffect(() => {
+            let interval;
+            if (isRunning && activeGoalId) {
+              interval = setInterval(() => {
+                setTimerSeconds(prev => prev + 1);
+              }, 1000);
+            }
+            return () => clearInterval(interval);
+          }, [isRunning, activeGoalId]);
+
+          const addGoal = () => {
+            if (newGoal.title.trim()) {
+              const goal = {
+                id: Date.now(),
+                ...newGoal,
+                timeSpent: 0,
+                sessions: [],
+                createdAt: new Date().toISOString(),
+                streak: 0,
+                lastWorkedDate: null
+              };
+              setGoals([...goals, goal]);
+              setNewGoal({ 
+                title: '', 
+                targetHours: 10, 
+                targetDays: 30,
+                dailyGoalMinutes: 60,
+                hourlyValue: 0, 
+                category: 'projeto' 
+              });
+              setShowNewGoal(false);
+            }
+          };
+
+          const deleteGoal = (goalId) => {
+            if (confirm('Tem certeza que deseja excluir esta meta?')) {
+              setGoals(goals.filter(g => g.id !== goalId));
+            }
+          };
+
+          const startTimer = (goalId) => {
+            if (activeGoalId && activeGoalId !== goalId) {
+              stopTimer();
+            }
+            setActiveGoalId(goalId);
+            setIsRunning(true);
+          };
+
+          const pauseTimer = () => {
+            setIsRunning(false);
+          };
+
+          const stopTimer = () => {
+            if (activeGoalId && timerSeconds > 0) {
+              setGoals(goals.map(goal => {
+                if (goal.id === activeGoalId) {
+                  const today = new Date().toDateString();
+                  const lastWorked = goal.lastWorkedDate ? new Date(goal.lastWorkedDate).toDateString() : null;
+                  const newStreak = lastWorked === today || lastWorked === new Date(Date.now() - 86400000).toDateString() 
+                    ? goal.streak + 1 
+                    : 1;
+
+                  return {
+                    ...goal,
+                    timeSpent: goal.timeSpent + timerSeconds,
+                    sessions: [...goal.sessions, {
+                      duration: timerSeconds,
+                      date: new Date().toISOString()
+                    }],
+                    lastWorkedDate: new Date().toISOString(),
+                    streak: newStreak
+                  };
+                }
+                return goal;
+              }));
+            }
+            setIsRunning(false);
+            setTimerSeconds(0);
+            setActiveGoalId(null);
+          };
+
+          const formatTime = (seconds) => {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+          };
+
+          const formatDate = (dateString) => {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pt-BR');
+          };
+
+          const calculateProgress = (goal) => {
+            const targetSeconds = goal.targetHours * 3600;
+            return Math.min((goal.timeSpent / targetSeconds) * 100, 100);
+          };
+
+          const calculateDaysProgress = (goal) => {
+            const startDate = new Date(goal.createdAt);
+            const today = new Date();
+            const daysPassed = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+            return Math.min((daysPassed / goal.targetDays) * 100, 100);
+          };
+
+          const getDaysRemaining = (goal) => {
+            const startDate = new Date(goal.createdAt);
+            const today = new Date();
+            const daysPassed = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+            return Math.max(goal.targetDays - daysPassed, 0);
+          };
+
+          const calculateValue = (goal) => {
+            const hours = goal.timeSpent / 3600;
+            return hours * goal.hourlyValue;
+          };
+
+          const getTodayTimeSpent = (goal) => {
+            const today = new Date().toDateString();
+            const todaySessions = goal.sessions.filter(s => 
+              new Date(s.date).toDateString() === today
+            );
+            return todaySessions.reduce((acc, s) => acc + s.duration, 0);
+          };
+
+          const getDailyGoalProgress = (goal) => {
+            const todaySeconds = getTodayTimeSpent(goal);
+            const targetSeconds = goal.dailyGoalMinutes * 60;
+            return Math.min((todaySeconds / targetSeconds) * 100, 100);
+          };
+
+          const getMotivationalMessage = (progress) => {
+            if (progress === 0) return "Comece agora! O primeiro passo é o mais importante! 🚀";
+            if (progress < 25) return "Ótimo começo! Continue assim! 💪";
+            if (progress < 50) return "Você está progredindo bem! 🌟";
+            if (progress < 75) return "Mais da metade concluída! Incrível! 🔥";
+            if (progress < 100) return "Quase lá! Você consegue! 🎯";
+            return "META CONCLUÍDA! Parabéns! 🎉🏆";
+          };
+
+          const getTodaysSessions = (goal) => {
+            const today = new Date().toDateString();
+            return goal.sessions.filter(s => 
+              new Date(s.date).toDateString() === today
+            ).length;
+          };
+
+          const installPWA = () => {
+            alert('📱 COMO INSTALAR:\n\n' +
+                  '1. Chrome/Edge: Menu (⋮) → "Adicionar à tela inicial"\n' +
+                  '2. Safari: Compartilhar (□↑) → "Adicionar à Tela Inicial"\n' +
+                  '3. Firefox: Menu → "Instalar"\n\n' +
+                  '✅ Você terá um ícone na tela inicial!');
+            setShowInstallPrompt(false);
+          };
+
+          const exportData = () => {
+            const dataStr = JSON.stringify(goals, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'minhas-metas.json';
+            link.click();
+          };
+
+          return React.createElement('div', { className: "min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 p-4 pb-20" },
+            React.createElement('div', { className: "max-w-6xl mx-auto" },
+              React.createElement('div', { className: "text-center mb-6 pt-6" },
+                React.createElement('h1', { className: "text-4xl font-bold text-gray-800 mb-2" }, "🎯 Anti-Procrastinação"),
+                React.createElement('p', { className: "text-gray-600" }, "Transforme seu tempo em conquistas reais")
+              ),
+
+              showInstallPrompt && React.createElement('div', { className: "bg-gradient-to-r from-green-500 to-blue-500 text-white p-4 rounded-2xl mb-6 shadow-lg" },
+                React.createElement('div', { className: "flex items-center justify-between flex-wrap gap-3" },
+                  React.createElement('div', { className: "flex-1" },
+                    React.createElement('h3', { className: "font-bold text-lg mb-1" }, "📱 Instale o App!"),
+                    React.createElement('p', { className: "text-sm" }, "Adicione à tela inicial para acesso rápido")
+                  ),
+                  React.createElement('button', {
+                    onClick: installPWA,
+                    className: "bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition"
+                  }, "Como instalar")
+                )
+              ),
+              
+              !showNewGoal && React.createElement('div', { className: "text-center mb-6 flex gap-3 justify-center flex-wrap" },
+                React.createElement('button', {
+                  onClick: () => setShowNewGoal(true),
+                  className: "bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:from-purple-700 hover:to-blue-700 transition shadow-lg"
+                }, "+ Nova Meta"),
+                goals.length > 0 && React.createElement('button', {
+                  onClick: exportData,
+                  className: "bg-gradient-to-r from-green-600 to-teal-600 text-white px-8 py-3 rounded-full font-semibold hover:from-green-700 hover:to-teal-700 transition shadow-lg"
+                }, "💾 Exportar Dados")
+              ),
+
+              showNewGoal && React.createElement('div', { className: "bg-white rounded-2xl shadow-xl p-6 mb-6 border-2 border-purple-200" },
+                React.createElement('h2', { className: "text-2xl font-bold text-gray-800 mb-4" }, "Criar Nova Meta"),
+                React.createElement('div', { className: "space-y-4" },
+                  React.createElement('input', {
+                    type: "text",
+                    placeholder: "Qual é sua meta? (ex: Ler 'O Poder do Hábito')",
+                    value: newGoal.title,
+                    onChange: (e) => setNewGoal({...newGoal, title: e.target.value}),
+                    className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                  }),
+                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-sm font-semibold text-gray-700 mb-2" }, "⏱️ Total de horas necessárias"),
+                      React.createElement('input', {
+                        type: "number",
+                        value: newGoal.targetHours,
+                        onChange: (e) => setNewGoal({...newGoal, targetHours: Number(e.target.value)}),
+                        className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none",
+                        min: "1"
+                      })
+                    ),
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-sm font-semibold text-gray-700 mb-2" }, "📅 Prazo em dias"),
+                      React.createElement('input', {
+                        type: "number",
+                        value: newGoal.targetDays,
+                        onChange: (e) => setNewGoal({...newGoal, targetDays: Number(e.target.value)}),
+                        className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none",
+                        min: "1"
+                      })
+                    )
+                  ),
+                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-sm font-semibold text-gray-700 mb-2" }, "🎯 Meta diária (minutos)"),
+                      React.createElement('input', {
+                        type: "number",
+                        value: newGoal.dailyGoalMinutes,
+                        onChange: (e) => setNewGoal({...newGoal, dailyGoalMinutes: Number(e.target.value)}),
+                        className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none",
+                        min: "5",
+                        step: "5"
+                      })
+                    ),
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-sm font-semibold text-gray-700 mb-2" }, "💰 Valor por hora (R$)"),
+                      React.createElement('input', {
+                        type: "number",
+                        value: newGoal.hourlyValue,
+                        onChange: (e) => setNewGoal({...newGoal, hourlyValue: Number(e.target.value)}),
+                        className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none",
+                        min: "0"
+                      })
+                    )
+                  ),
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-sm font-semibold text-gray-700 mb-2" }, "Categoria"),
+                    React.createElement('select', {
+                      value: newGoal.category,
+                      onChange: (e) => setNewGoal({...newGoal, category: e.target.value}),
+                      className: "w-full p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                    },
+                      React.createElement('option', { value: "projeto" }, "Projeto"),
+                      React.createElement('option', { value: "estudo" }, "Estudo"),
+                      React.createElement('option', { value: "leitura" }, "Leitura"),
+                      React.createElement('option', { value: "negocio" }, "Negócio"),
+                      React.createElement('option', { value: "saude" }, "Saúde"),
+                      React.createElement('option', { value: "hobby" }, "Hobby")
+                    )
+                  ),
+                  React.createElement('div', { className: "flex gap-3" },
+                    React.createElement('button', {
+                      onClick: addGoal,
+                      className: "flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-semibold hover:from-green-600 hover:to-green-700 transition"
+                    }, "Criar Meta"),
+                    React.createElement('button', {
+                      onClick: () => setShowNewGoal(false),
+                      className: "flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+                    }, "Cancelar")
+                  )
+                )
+              ),
+
+              goals.length === 0 && !showNewGoal && React.createElement('div', { className: "text-center py-20" },
+                React.createElement('p', { className: "text-8xl mb-4" }, "🎯"),
+                React.createElement('p', { className: "text-xl text-gray-500 font-semibold" }, "Nenhuma meta criada ainda"),
+                React.createElement('p', { className: "text-gray-400" }, "Comece criando sua primeira meta!")
+              ),
+
+              React.createElement('div', { className: "grid gap-6" },
+                goals.map(goal => {
+                  const progress = calculateProgress(goal);
+                  const daysProgress = calculateDaysProgress(goal);
+                  const isActive = activeGoalId === goal.id;
+                  const value = calculateValue(goal);
+                  const hoursSpent = (goal.timeSpent / 3600).toFixed(1);
+                  const todaySessions = getTodaysSessions(goal);
+                  const dailyProgress = getDailyGoalProgress(goal);
+                  const todayMinutes = Math.floor(getTodayTimeSpent(goal) / 60);
+                  const daysRemaining = getDaysRemaining(goal);
+                  const isDailyGoalMet = dailyProgress >= 100;
+
+                  return React.createElement('div', {
+                    key: goal.id,
+                    className: `bg-white rounded-2xl shadow-xl p-6 transition-all ${isActive ? 'ring-4 ring-purple-400' : ''}`
+                  },
+                    React.createElement('div', { className: "flex justify-between items-start mb-4" },
+                      React.createElement('div', { className: "flex-1" },
+                        React.createElement('h3', { className: "text-2xl font-bold text-gray-800 mb-2" }, goal.title),
+                        React.createElement('div', { className: "flex gap-2 flex-wrap" },
+                          React.createElement('span', { className: "inline-block bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-semibold" }, goal.category),
+                          React.createElement('span', { className: "inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-semibold" },
+                            `📅 Início: ${formatDate(goal.createdAt)}`
+                          )
+                        )
+                      ),
+                      React.createElement('div', { className: "flex gap-2" },
+                        isActive && React.createElement('div', { className: "text-right mr-4" },
+                          React.createElement('div', { className: "text-3xl font-mono font-bold text-purple-600" }, formatTime(timerSeconds)),
+                          React.createElement('div', { className: "text-sm text-gray-500" }, "sessão atual")
+                        ),
+                        React.createElement('button', {
+                          onClick: () => deleteGoal(goal.id),
+                          className: "text-red-500 hover:text-red-700 text-2xl font-bold"
+                        }, "×")
+                      )
+                    ),
+
+                    !isDailyGoalMet ? React.createElement('div', { className: "bg-orange-50 border-2 border-orange-200 p-3 rounded-lg mb-4 flex items-center gap-3" },
+                      React.createElement('span', { className: "text-2xl" }, "⚠️"),
+                      React.createElement('div', { className: "flex-1" },
+                        React.createElement('p', { className: "font-semibold text-orange-800" }, `Meta diária: ${todayMinutes}/${goal.dailyGoalMinutes} minutos`),
+                        React.createElement('p', { className: "text-sm text-orange-600" }, `Faltam ${goal.dailyGoalMinutes - todayMinutes} minutos!`)
+                      )
+                    ) : React.createElement('div', { className: "bg-green-50 border-2 border-green-200 p-3 rounded-lg mb-4 flex items-center gap-3" },
+                      React.createElement('span', { className: "text-2xl" }, "✅"),
+                      React.createElement('div', { className: "flex-1" },
+                        React.createElement('p', { className: "font-semibold text-green-800" }, `Meta diária concluída! (${todayMinutes} min)`),
+                        React.createElement('p', { className: "text-sm text-green-600" }, "Parabéns! Continue assim!")
+                      )
+                    ),
+
+                    React.createElement('div', { className: "bg-gradient-to-r from-purple-100 to-blue-100 p-3 rounded-lg mb-4" },
+                      React.createElement('p', { className: "text-center font-semibold text-purple-800" }, getMotivationalMessage(progress))
+                    ),
+
+                    React.createElement('div', { className: "space-y-4 mb-4" },
+                      React.createElement('div', null,
+                        React.createElement('div', { className: "flex justify-between text-sm font-semibold text-gray-700 mb-2" },
+                          React.createElement('span', null, `⏱️ Horas: ${progress.toFixed(1)}%`),
+                          React.createElement('span', null, `${hoursSpent}h / ${goal.targetHours}h`)
+                        ),
+                        React.createElement('div', { className: "w-full bg-gray-200 rounded-full h-4" },
+                          React.createElement('div', {
+                            className: "bg-gradient-to-r from-purple-500 to-blue-500 h-full rounded-full transition-all",
+                            style: { width: `${progress}%` }
+                          })
+                        )
+                      ),
+                      React.createElement('div', null,
+                        React.createElement('div', { className: "flex justify-between text-sm font-semibold text-gray-700 mb-2" },
+                          React.createElement('span', null, `📅 Dias: ${daysProgress.toFixed(1)}%`),
+                          React.createElement('span', null, `${daysRemaining} dias restantes`)
+                        ),
+                        React.createElement('div', { className: "w-full bg-gray-200 rounded-full h-4" },
+                          React.createElement('div', {
+                            className: "bg-gradient-to-r from-green-500 to-teal-500 h-full rounded-full transition-all",
+                            style: { width: `${daysProgress}%` }
+                          })
+                        )
+                      ),
+                      React.createElement('div', null,
+                        React.createElement('div', { className: "flex justify-between text-sm font-semibold text-gray-700 mb-2" },
+                          React.createElement('span', null, `🎯 Hoje: ${dailyProgress.toFixed(0)}%`),
+                          React.createElement('span', null, `${todayMinutes}/${goal.dailyGoalMinutes} min`)
+                        ),
+                        React.createElement('div', { className: "w-full bg-gray-200 rounded-full h-4" },
+                          React.createElement('div', {
+                            className: `h-full rounded-full transition-all ${isDailyGoalMet ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-orange-500 to-red-500'}`,
+                            style: { width: `${dailyProgress}%` }
+                          })
+                        )
+                      )
+                    ),
+
+                    React.createElement('div', { className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" },
+                      React.createElement('div', { className: "bg-orange-50 p-3 rounded-lg text-center" },
+                        React.createElement('div', { className: "text-2xl mb-1" }, "🔥"),
+                        React.createElement('div', { className: "text-2xl font-bold text-orange-600" }, goal.streak),
+                        React.createElement('div', { className: "text-xs text-gray-600" }, "sequência")
+                      ),
+                      React.createElement('div', { className: "bg-blue-50 p-3 rounded-lg text-center" },
+                        React.createElement('div', { className: "text-2xl mb-1" }, "📅"),
+                        React.createElement('div', { className: "text-2xl font-bold text-blue-600" }, todaySessions),
+                        React.createElement('div', { className: "text-xs text-gray-600" }, "hoje")
+                      ),
+                      React.createElement('div', { className: "bg-green-50 p-3 rounded-lg text-center" },
+                        React.createElement('div', { className: "text-2xl mb-1" }, "⏰"),
+                        React.createElement('div', { className: "text-2xl font-bold text-green-600" }, goal.sessions.length),
+                        React.createElement('div', { className: "text-xs text-gray-600" }, "total")
+                      ),
+                      goal.hourlyValue > 0 && React.createElement('div', { className: "bg-yellow-50 p-3 rounded-lg text-center" },
+                        React.createElement('div', { className: "text-2xl mb-1" }, "💰"),
+                        React.createElement('div', { className: "text-2xl font-bold text-yellow-700" }, `R$${value.toFixed(0)}`),
+                        React.createElement('div', { className: "text-xs text-gray-600" }, "gerado")
+                      )
+                    ),
+
+                    React.createElement('div', { className: "flex gap-3 flex-wrap" },
+                      !isActive ? React.createElement('button', {
+                        onClick: () => startTimer(goal.id),
+                        className: "flex-1 min-w-[200px] bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-semibold hover:from-green-600 hover:to-green-700 transition"
+                      }, "▶️ Começar") : React.createElement(React.Fragment, null,
+                        React.createElement('button', {
+                          onClick: pauseTimer,
+                          className: "flex-1 min-w-[150px] bg-gradient-to-r from-yellow-500 to-yellow-600 text-white py-3 rounded-lg font-semibold hover:from-yellow-600 hover:to-yellow-700 transition"
+                        }, isRunning ? '⏸️ Pausar' : '▶️ Continuar'),
+                        React.createElement('button', {
+                          onClick: stopTimer,
+                          className: "flex-1 min-w-[150px] bg-gradient-to-r from-red-500 to-red-600 text-white py-3 rounded-lg font-semibold hover:from-red-600 hover:to-red-700 transition"
+                        }, "⏹️ Finalizar")
+                      )
+                    ),
+
+                    progress >= 100 && React.createElement('div', { className: "mt-4 bg-gradient-to-r from-yellow-400 to-orange-400 p-4 rounded-lg text-center" },
+                      React.createElement('p', { className: "text-4xl mb-2" }, "🏆"),
+                      React.createElement('p', { className: "text-white font-bold text-lg" }, "META CONCLUÍDA! 🎉")
+                    )
+                  );
+                })
+              )
+            )
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(AntiProcrastinationApp));
+    </script>
+</body>
+</html>
